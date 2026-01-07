@@ -25,6 +25,11 @@ extern char trampoline[]; // trampoline.S
 // memory model when using p->parent.
 // must be acquired before any p->lock.
 struct spinlock wait_lock;
+unsigned long rand_state = 1;
+unsigned int rand() {
+    rand_state = rand_state * 20260107 + 1013904223;
+    return rand_state;
+}
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -124,7 +129,7 @@ allocproc(void)
 found:
   p->pid = allocpid();
   p->state = USED;
-
+  p->tickets = 1; //进行初始化
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -289,6 +294,7 @@ kfork(void)
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
+  np->tickets = p->tickets; //子进程继承父进程的彩票
 
   pid = np->pid;
 
@@ -426,38 +432,47 @@ scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-
+  
   c->proc = 0;
   for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting. Then turn them back off
-    // to avoid a possible race between an interrupt
-    // and wfi.
     intr_on();
-    intr_off();
 
-    int found = 0;
+    int total_tickets = 0;
+    
+    // 第一轮遍历：统计所有就绪态进程的总票数
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+        total_tickets += p->tickets;
       }
       release(&p->lock);
     }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
-      asm volatile("wfi");
+
+    // 如果没有票（没有进程），就空转
+    if (total_tickets == 0) continue;
+
+    // 抽奖：决定中奖号码
+    long winner = rand() % total_tickets;
+    long current_ticket_count = 0;
+
+    // 第二轮遍历：找到持有中奖号码的那个进程
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        current_ticket_count += p->tickets;
+        
+        // 如果累加票数超过了中奖号，说明这个 p 就是赢家
+        if(current_ticket_count > winner) {
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+          c->proc = 0;
+          release(&p->lock);
+          // 这里的 break 意味着跑完一个时间片后，重新回来抽奖
+          break; 
+        }
+      }
+      release(&p->lock);
     }
   }
 }

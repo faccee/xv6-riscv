@@ -78,7 +78,7 @@ struct trapframe {
   /* 272 */ uint64 t5;
   /* 280 */ uint64 t6;
 };
-
+//int tickets;
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -94,7 +94,7 @@ struct proc {
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
-
+  int tickets;//彩票调度算法添加变量
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)

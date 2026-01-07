@@ -107,3 +107,18 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+uint64
+sys_settickets(void)
+{
+  int n;
+  // 获取用户传入的参数 (票数)
+  
+  argint(0, &n);
+  if(n < 1) n = 1; // 至少要有一张票
+  
+  acquire(&myproc()->lock);
+  myproc()->tickets = n; // 修改当前进程的票数
+  release(&myproc()->lock);
+  
+  return 0;
+}
